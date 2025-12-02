@@ -264,6 +264,8 @@ def evaluate_model(model, tokenizer, dataloader, raw_dataset):
 # Main
 # --------------------------
 def main():
+    print(f"Using device: {cfg.device}")
+    
     print("Loading data...")
     raw = load_dataset("squad")
     tokenizer = AutoTokenizer.from_pretrained(cfg.student_model, use_fast=True)
@@ -277,28 +279,29 @@ def main():
 
     print("Loading models...")
     teacher = AutoModelForQuestionAnswering.from_pretrained(cfg.teacher_model).to(cfg.device)
-    student = AutoModelForQuestionAnswering.from_pretrained(cfg.student_model).to(cfg.device)
+    student_ft = AutoModelForQuestionAnswering.from_pretrained(cfg.student_model).to(cfg.device)
+    student_kd = AutoModelForQuestionAnswering.from_pretrained(cfg.student_model).to(cfg.device)
 
-    optimizer = torch.optim.AdamW(student.parameters(), lr=cfg.lr)
-    scheduler = get_linear_schedule_with_warmup(optimizer, 0, cfg.epochs * len(train_loader))
+    optimizer_ft = torch.optim.AdamW(student_ft.parameters(), lr=cfg.lr)
+    scheduler_ft = get_linear_schedule_with_warmup(optimizer_ft, 0, cfg.epochs * len(train_loader))
 
     print("\n=== Standard Fine-tuning ===")
-    loss_ft = train_standard(student, train_loader, optimizer, scheduler, tokenizer)
+    loss_ft = train_standard(student_ft, train_loader, optimizer_ft, scheduler_ft, tokenizer)
     print(f"Fine-tune loss: {loss_ft:.4f}")
 
-    optimizer = torch.optim.AdamW(student.parameters(), lr=cfg.lr)
-    scheduler = get_linear_schedule_with_warmup(optimizer, 0, cfg.epochs * len(train_loader))
+    optimizer_kd = torch.optim.AdamW(student_kd.parameters(), lr=cfg.lr)
+    scheduler_kd = get_linear_schedule_with_warmup(optimizer_kd, 0, cfg.epochs * len(train_loader))
 
     print("\n=== Knowledge Distillation ===")
-    loss_kd = train_kd(student, teacher, train_loader, optimizer, scheduler, tokenizer)
+    loss_kd = train_kd(student_kd, teacher, train_loader, optimizer_kd, scheduler_kd, tokenizer)
     print(f"Distillation loss: {loss_kd:.4f}")
 
     print("\nEvaluating fine-tuned student...")
-    scores_ft = evaluate_model(student, tokenizer, val_loader, raw["validation"].select(range(50)))
+    scores_ft = evaluate_model(student_ft, tokenizer, val_loader, raw["validation"].select(range(50)))
     print(scores_ft)
 
     print("\nEvaluating distilled student...")
-    scores_kd = evaluate_model(student, tokenizer, val_loader, raw["validation"].select(range(50)))
+    scores_kd = evaluate_model(student_kd, tokenizer, val_loader, raw["validation"].select(range(50)))
     print(scores_kd)
 
 
