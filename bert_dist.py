@@ -192,22 +192,45 @@ def train_kd(student, teacher, dataloader, optimizer, scheduler, tokenizer):
       - optimizer/scheduler steps
     """
     # TODO (1 pt): correct train/eval modes for teacher and
+    teacher.eval()
+    student.train()
 
     total_loss = 0.0
 
     for batch in tqdm(dataloader, desc="Distillation"):
         # TODO (2 pts): move only tensor fields to device; keep others (e.g., example_id) as-is
+        batch = {
+            k: v.to(cfg.device) if isinstance(v, torch.Tensor) else v
+            for k, v in batch.items()
+        }
 
         # TODO (1 pt): drop fields not accepted by forward (e.g., example_id)
+        model_inputs = {k: v for k, v in batch.items() if k != "example_id"}
 
         # TODO (2 pts): teacher forward with no grad
- 
+        with torch.no_grad():
+            teacher_outputs = teacher(**model_inputs)
+            t_start_logits = teacher_outputs.start_logits
+            t_end_logits = teacher_outputs.end_logits
 
         # TODO (1 pt): student forward
+        student_outputs = student(**model_inputs)
+        s_start_logits = student_outputs.start_logits
+        s_end_logits = student_outputs.end_logits
 
         # TODO (3 pts): losses = CE + KL(start/end) with provided kl_loss()
+        loss_ce = student_outputs.loss
+        loss_kd_start = kl_loss(s_start_logits, t_start_logits, T=2.0)
+        loss_kd_end = kl_loss(s_end_logits, t_end_logits, T=2.0)
+        loss_kd = (loss_kd_start + loss_kd_end)
 
+        loss = (cfg.alpha_kd * loss_kd) + (cfg.beta_ce * loss_ce)
         # TODO (1 pt): optimize (backward, step, scheduler, zero_grad) and accumulate
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()
+        total_loss += loss.item()
 
     return total_loss / len(dataloader)
 
